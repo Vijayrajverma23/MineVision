@@ -1,6 +1,6 @@
 # ============================================================
-# MINEVISION V6
-# Intelligent Mine Vehicle Safety Decision-Support System
+# MINEVISION V7
+# Predictive AI Mine Vehicle Safety System
 #
 # Safe and Efficient Operation of Mine Vehicles
 # in Fog and Low-Visibility Conditions
@@ -9,9 +9,13 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
+import numpy as np
 import random
 import math
-from datetime import datetime
+
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score
 
 
 # ============================================================
@@ -19,7 +23,7 @@ from datetime import datetime
 # ============================================================
 
 st.set_page_config(
-    page_title="MineVision V6",
+    page_title="MineVision V7",
     page_icon="⛏️",
     layout="wide"
 )
@@ -44,11 +48,7 @@ st.markdown("""
 .subtitle {
     font-size: 17px;
     color: #6b7280;
-}
-
-.section-title {
-    font-size: 24px;
-    font-weight: 700;
+    margin-bottom: 20px;
 }
 
 div[data-testid="stMetric"] {
@@ -67,13 +67,13 @@ div[data-testid="stMetric"] {
 # ============================================================
 
 st.markdown(
-    '<div class="title">⛏️ MineVision V6</div>',
+    '<div class="title">⛏️ MineVision V7</div>',
     unsafe_allow_html=True
 )
 
 st.markdown(
     '<div class="subtitle">'
-    'Intelligent Safety Decision-Support System for Open-Cast Mines'
+    'Predictive AI Safety System for Open-Cast Mine Vehicles'
     '</div>',
     unsafe_allow_html=True
 )
@@ -105,7 +105,7 @@ if "alert_history" not in st.session_state:
 
 
 # ============================================================
-# ROAD NETWORK
+# MINE ROAD NETWORK
 # ============================================================
 
 ROAD_POINTS = [
@@ -138,7 +138,7 @@ ROAD_POINTS = [
 
 
 # ============================================================
-# FUNCTIONS
+# HELPER FUNCTIONS
 # ============================================================
 
 def get_fog_condition(visibility):
@@ -197,148 +197,288 @@ def calculate_safe_distance(
 
 # ------------------------------------------------------------
 
-def get_status(risk):
+def is_restricted_zone(x, y):
 
-    if risk >= 70:
-        return "DANGER"
-
-    elif risk >= 40:
-        return "CAUTION"
-
-    return "SAFE"
+    return (
+        10 <= x <= 30
+        and
+        10 <= y <= 30
+    )
 
 
-# ------------------------------------------------------------
+# ============================================================
+# GENERATE TRAINING DATA
+# ============================================================
 
-def get_recommendation(
-    status,
-    speed,
-    speed_limit,
-    nearest_distance,
-    safe_distance,
-    restricted
-):
+def generate_training_data(samples=5000):
 
-    if status == "DANGER":
+    data = []
+
+    for _ in range(samples):
+
+        visibility = random.randint(
+            20,
+            200
+        )
+
+        speed = random.randint(
+            5,
+            60
+        )
+
+        distance = random.randint(
+            10,
+            180
+        )
+
+        traffic = random.randint(
+            2,
+            10
+        )
+
+        restricted = random.randint(
+            0,
+            1
+        )
+
+        speed_limit = calculate_speed_limit(
+            visibility
+        )
+
+        safe_distance = calculate_safe_distance(
+            speed,
+            visibility
+        )
+
+        # --------------------------------------------
+        # Generate training risk
+        # --------------------------------------------
+
+        risk = 0
+
+        # Visibility
+
+        if visibility < 30:
+            risk += 35
+
+        elif visibility < 60:
+            risk += 25
+
+        elif visibility < 100:
+            risk += 15
+
+        elif visibility < 150:
+            risk += 5
+
+
+        # Speed
+
+        if speed > speed_limit * 1.5:
+            risk += 30
+
+        elif speed > speed_limit:
+            risk += 25
+
+        elif speed > speed_limit * 0.8:
+            risk += 10
+
+
+        # Distance
+
+        if distance < 20:
+            risk += 35
+
+        elif distance < 30:
+            risk += 30
+
+        elif distance < safe_distance:
+            risk += 20
+
+        elif distance < safe_distance * 1.3:
+            risk += 10
+
+
+        # Restricted zone
 
         if restricted:
-            return "STOP - RESTRICTED ZONE"
-
-        if nearest_distance < 30:
-            return "STOP - PROXIMITY HAZARD"
-
-        if speed > speed_limit:
-            return "STOP - EXCESSIVE SPEED"
-
-        return "STOP - HIGH OPERATIONAL RISK"
+            risk += 25
 
 
-    if status == "CAUTION":
+        # Traffic
 
-        if restricted:
-            return "LEAVE RESTRICTED ZONE"
+        if traffic >= 9:
+            risk += 10
 
-        if speed > speed_limit:
-            return "REDUCE SPEED"
-
-        if nearest_distance < safe_distance:
-            return "INCREASE DISTANCE"
-
-        return "PROCEED WITH CAUTION"
+        elif traffic >= 6:
+            risk += 5
 
 
-    return "NORMAL OPERATION"
+        # Small random noise makes the dataset
+        # less perfectly deterministic.
+
+        risk += random.randint(
+            -5,
+            5
+        )
+
+        risk = max(
+            0,
+            min(
+                risk,
+                100
+            )
+        )
 
 
-# ============================================================
-# RISK COMPONENTS
-# ============================================================
+        # --------------------------------------------
+        # Convert risk into class
+        # --------------------------------------------
 
-def visibility_risk(visibility):
+        if risk >= 70:
 
-    if visibility < 30:
-        return 35
+            label = "DANGER"
 
-    elif visibility < 60:
-        return 25
+        elif risk >= 40:
 
-    elif visibility < 100:
-        return 15
+            label = "CAUTION"
 
-    elif visibility < 150:
-        return 5
+        else:
 
-    return 0
+            label = "SAFE"
 
 
-# ------------------------------------------------------------
+        data.append({
 
-def speed_risk(
-    speed,
-    speed_limit
-):
+            "visibility": visibility,
 
-    if speed > speed_limit * 1.5:
-        return 30
+            "speed": speed,
 
-    elif speed > speed_limit:
-        return 25
+            "distance": distance,
 
-    elif speed > speed_limit * 0.8:
-        return 10
+            "traffic": traffic,
 
-    return 0
+            "restricted": restricted,
 
+            "risk": risk,
 
-# ------------------------------------------------------------
+            "label": label
 
-def distance_risk(
-    nearest_distance,
-    safe_distance
-):
-
-    if nearest_distance < 20:
-        return 35
-
-    elif nearest_distance < 30:
-        return 30
-
-    elif nearest_distance < safe_distance:
-        return 20
-
-    elif nearest_distance < safe_distance * 1.3:
-        return 10
-
-    return 0
+        })
 
 
-# ------------------------------------------------------------
-
-def zone_risk(restricted):
-
-    if restricted:
-        return 25
-
-    return 0
-
-
-# ------------------------------------------------------------
-
-def traffic_risk(
-    number_of_vehicles
-):
-
-    if number_of_vehicles >= 9:
-        return 10
-
-    elif number_of_vehicles >= 6:
-        return 5
-
-    return 0
+    return pd.DataFrame(data)
 
 
 # ============================================================
-# CREATE VEHICLE
+# TRAIN MACHINE LEARNING MODEL
+# ============================================================
+
+@st.cache_resource
+def train_model():
+
+    training_data = generate_training_data(
+        5000
+    )
+
+
+    features = [
+
+        "visibility",
+
+        "speed",
+
+        "distance",
+
+        "traffic",
+
+        "restricted"
+
+    ]
+
+
+    X = training_data[
+        features
+    ]
+
+    y = training_data[
+        "label"
+    ]
+
+
+    X_train, X_test, y_train, y_test = train_test_split(
+
+        X,
+
+        y,
+
+        test_size=0.20,
+
+        random_state=42,
+
+        stratify=y
+
+    )
+
+
+    model = RandomForestClassifier(
+
+        n_estimators=150,
+
+        max_depth=10,
+
+        random_state=42
+
+    )
+
+
+    model.fit(
+        X_train,
+        y_train
+    )
+
+
+    predictions = model.predict(
+        X_test
+    )
+
+
+    accuracy = accuracy_score(
+        y_test,
+        predictions
+    )
+
+
+    return (
+        model,
+        training_data,
+        accuracy
+    )
+
+
+# ============================================================
+# LOAD MODEL
+# ============================================================
+
+model, training_data, model_accuracy = train_model()
+
+
+FEATURES = [
+
+    "visibility",
+
+    "speed",
+
+    "distance",
+
+    "traffic",
+
+    "restricted"
+
+]
+
+
+# ============================================================
+# VEHICLE CREATION
 # ============================================================
 
 def create_vehicle(number):
@@ -360,8 +500,10 @@ def create_vehicle(number):
 
     point = starting_points[
         (number - 1)
-        % len(starting_points)
+        %
+        len(starting_points)
     ]
+
 
     return {
 
@@ -394,19 +536,34 @@ def move_vehicle(vehicle):
         vehicle["target_index"]
     ]
 
-    dx = target[0] - vehicle["x"]
 
-    dy = target[1] - vehicle["y"]
+    dx = (
+        target[0]
+        -
+        vehicle["x"]
+    )
+
+    dy = (
+        target[1]
+        -
+        vehicle["y"]
+    )
+
 
     distance = math.sqrt(
-        dx * dx + dy * dy
+        dx * dx
+        +
+        dy * dy
     )
+
 
     if distance < 2:
 
         vehicle["target_index"] = (
 
-            vehicle["target_index"] + 1
+            vehicle["target_index"]
+            +
+            1
 
         ) % len(ROAD_POINTS)
 
@@ -418,29 +575,19 @@ def move_vehicle(vehicle):
         1.8
     )
 
+
     vehicle["x"] += (
+
         dx / distance
+
     ) * movement
+
 
     vehicle["y"] += (
+
         dy / distance
+
     ) * movement
-
-
-# ============================================================
-# RESTRICTED ZONE
-# ============================================================
-
-def is_restricted_zone(
-    x,
-    y
-):
-
-    return (
-        10 <= x <= 30
-        and
-        10 <= y <= 30
-    )
 
 
 # ============================================================
@@ -458,36 +605,36 @@ st.sidebar.subheader(
 
 
 visibility = st.sidebar.slider(
+
     "🌫️ Visibility",
+
     min_value=20,
+
     max_value=200,
+
     value=120,
+
     step=5
+
 )
 
 
 vehicle_count = st.sidebar.slider(
+
     "🚛 Active Vehicles",
+
     min_value=3,
+
     max_value=10,
+
     value=6
+
 )
 
 
 st.sidebar.subheader(
     "Simulation"
 )
-
-
-simulation_speed = st.sidebar.slider(
-    "Simulation Speed",
-    min_value=0.1,
-    max_value=1.0,
-    value=0.4
-)
-
-
-st.sidebar.divider()
 
 
 if st.sidebar.button(
@@ -540,21 +687,34 @@ speed_limit = calculate_speed_limit(
 # ============================================================
 
 if (
+
     not st.session_state.initialized
+
     or
-    len(st.session_state.vehicles)
-    != vehicle_count
+
+    len(
+        st.session_state.vehicles
+    )
+    !=
+    vehicle_count
+
 ):
 
     st.session_state.vehicles = []
+
 
     for i in range(
         vehicle_count
     ):
 
         st.session_state.vehicles.append(
-            create_vehicle(i + 1)
+
+            create_vehicle(
+                i + 1
+            )
+
         )
+
 
     st.session_state.initialized = True
 
@@ -567,7 +727,10 @@ if st.session_state.running:
 
     for vehicle in st.session_state.vehicles:
 
-        move_vehicle(vehicle)
+        move_vehicle(
+            vehicle
+        )
+
 
         vehicle["speed"] = random.randint(
 
@@ -583,11 +746,12 @@ if st.session_state.running:
 
         )
 
+
     st.session_state.step += 1
 
 
 # ============================================================
-# VEHICLE RISK ANALYSIS
+# BUILD VEHICLE DATA
 # ============================================================
 
 vehicle_data = []
@@ -606,25 +770,38 @@ for vehicle in st.session_state.vehicles:
 
     for other in st.session_state.vehicles:
 
-        if vehicle["id"] == other["id"]:
+        if (
+            vehicle["id"]
+            ==
+            other["id"]
+        ):
             continue
 
 
         dx = (
+
             vehicle["x"]
-            - other["x"]
+            -
+            other["x"]
+
         )
 
+
         dy = (
+
             vehicle["y"]
-            - other["y"]
+            -
+            other["y"]
+
         )
 
 
         distance = math.sqrt(
+
             dx * dx
             +
             dy * dy
+
         )
 
 
@@ -635,15 +812,16 @@ for vehicle in st.session_state.vehicles:
             nearest_vehicle = other["id"]
 
 
-    # Convert simulation units to meters
+    # Convert map units to meters
 
     real_distance = round(
+
         nearest_distance * 3,
+
         1
+
     )
 
-
-    # Safe distance
 
     safe_distance = calculate_safe_distance(
 
@@ -653,8 +831,6 @@ for vehicle in st.session_state.vehicles:
 
     )
 
-
-    # Restricted area
 
     restricted = is_restricted_zone(
 
@@ -666,83 +842,130 @@ for vehicle in st.session_state.vehicles:
 
 
     # --------------------------------------------------------
-    # Risk Components
+    # MACHINE LEARNING INPUT
     # --------------------------------------------------------
 
-    v_risk = visibility_risk(
-        visibility
-    )
+    model_input = pd.DataFrame([{
 
+        "visibility": visibility,
 
-    s_risk = speed_risk(
+        "speed": vehicle["speed"],
 
-        vehicle["speed"],
+        "distance": real_distance,
 
-        speed_limit
+        "traffic": vehicle_count,
 
-    )
+        "restricted": int(
+            restricted
+        )
 
-
-    d_risk = distance_risk(
-
-        real_distance,
-
-        safe_distance
-
-    )
-
-
-    z_risk = zone_risk(
-        restricted
-    )
-
-
-    t_risk = traffic_risk(
-        vehicle_count
-    )
+    }])
 
 
     # --------------------------------------------------------
-    # Total Risk
+    # ML PREDICTION
     # --------------------------------------------------------
 
-    total_risk = min(
-
-        v_risk
-        +
-        s_risk
-        +
-        d_risk
-        +
-        z_risk
-        +
-        t_risk,
-
-        100
-
-    )
+    prediction = model.predict(
+        model_input
+    )[0]
 
 
-    status = get_status(
-        total_risk
-    )
+    probabilities = model.predict_proba(
+        model_input
+    )[0]
 
 
-    recommendation = get_recommendation(
+    confidence = round(
 
-        status,
+        max(
+            probabilities
+        )
+        *
+        100,
 
-        vehicle["speed"],
-
-        speed_limit,
-
-        real_distance,
-
-        safe_distance,
-
-        restricted
+        1
 
     )
+
+
+    # --------------------------------------------------------
+    # Calculate numerical risk
+    # --------------------------------------------------------
+
+    risk_mapping = {
+
+        "SAFE": 20,
+
+        "CAUTION": 55,
+
+        "DANGER": 90
+
+    }
+
+
+    predicted_risk = risk_mapping[
+        prediction
+    ]
+
+
+    # --------------------------------------------------------
+    # Recommendation
+    # --------------------------------------------------------
+
+    if prediction == "DANGER":
+
+        if restricted:
+
+            recommendation = (
+                "STOP - RESTRICTED ZONE"
+            )
+
+        elif real_distance < 30:
+
+            recommendation = (
+                "STOP - PROXIMITY HAZARD"
+            )
+
+        elif vehicle["speed"] > speed_limit:
+
+            recommendation = (
+                "STOP - EXCESSIVE SPEED"
+            )
+
+        else:
+
+            recommendation = (
+                "STOP - HIGH PREDICTED RISK"
+            )
+
+
+    elif prediction == "CAUTION":
+
+        if vehicle["speed"] > speed_limit:
+
+            recommendation = (
+                "REDUCE SPEED"
+            )
+
+        elif real_distance < safe_distance:
+
+            recommendation = (
+                "INCREASE VEHICLE DISTANCE"
+            )
+
+        else:
+
+            recommendation = (
+                "PROCEED WITH CAUTION"
+            )
+
+
+    else:
+
+        recommendation = (
+            "NORMAL OPERATION"
+        )
 
 
     vehicle_data.append({
@@ -755,19 +978,11 @@ for vehicle in st.session_state.vehicles:
 
         "Safe Distance": safe_distance,
 
-        "Visibility Risk": v_risk,
+        "Prediction": prediction,
 
-        "Speed Risk": s_risk,
+        "Confidence": confidence,
 
-        "Distance Risk": d_risk,
-
-        "Zone Risk": z_risk,
-
-        "Traffic Risk": t_risk,
-
-        "Risk": total_risk,
-
-        "Status": status,
+        "Risk": predicted_risk,
 
         "Recommendation": recommendation,
 
@@ -788,7 +1003,7 @@ df = pd.DataFrame(
 
 
 # ============================================================
-# MINE SAFETY SCORE
+# SAFETY SCORE
 # ============================================================
 
 average_risk = round(
@@ -797,16 +1012,40 @@ average_risk = round(
 )
 
 
-mine_safety_score = max(
+safety_score = max(
+
     0,
+
     round(
         100 - average_risk,
         1
     )
+
 )
 
 
-# Store history
+# ============================================================
+# COUNTERS
+# ============================================================
+
+safe_count = sum(
+    df["Prediction"] == "SAFE"
+)
+
+
+caution_count = sum(
+    df["Prediction"] == "CAUTION"
+)
+
+
+danger_count = sum(
+    df["Prediction"] == "DANGER"
+)
+
+
+# ============================================================
+# SAVE HISTORY
+# ============================================================
 
 if st.session_state.step > 0:
 
@@ -814,90 +1053,90 @@ if st.session_state.step > 0:
 
         "Step": st.session_state.step,
 
-        "Risk": average_risk,
+        "Predicted Risk": average_risk,
 
-        "Safety Score": mine_safety_score
+        "Safety Score": safety_score
 
     })
 
-
-# Keep history manageable
 
 if len(
     st.session_state.risk_history
 ) > 50:
 
     st.session_state.risk_history = (
+
         st.session_state.risk_history[-50:]
+
     )
 
 
 # ============================================================
-# STATUS COUNTS
-# ============================================================
-
-safe_count = sum(
-    df["Status"] == "SAFE"
-)
-
-caution_count = sum(
-    df["Status"] == "CAUTION"
-)
-
-danger_count = sum(
-    df["Status"] == "DANGER"
-)
-
-
-# ============================================================
-# TOP METRICS
+# TOP DASHBOARD
 # ============================================================
 
 st.subheader(
-    "📊 Mine Safety Overview"
+    "🤖 Predictive Safety Dashboard"
 )
 
 
-col1, col2, col3, col4, col5 = st.columns(5)
+c1, c2, c3, c4, c5 = st.columns(5)
 
 
-with col1:
+with c1:
 
     st.metric(
+
         "🛡️ Safety Score",
-        f"{mine_safety_score}/100"
+
+        f"{safety_score}/100"
+
     )
 
 
-with col2:
+with c2:
 
     st.metric(
+
+        "🤖 ML Accuracy",
+
+        f"{model_accuracy * 100:.1f}%"
+
+    )
+
+
+with c3:
+
+    st.metric(
+
         "🌫️ Visibility",
-        f"{visibility} m"
+
+        f"{visibility} m",
+
+        fog_condition
+
     )
 
 
-with col3:
+with c4:
 
     st.metric(
-        "⚡ Speed Limit",
-        f"{speed_limit} km/h"
-    )
 
-
-with col4:
-
-    st.metric(
         "🚛 Vehicles",
+
         vehicle_count
+
     )
 
 
-with col5:
+with c5:
 
     st.metric(
-        "🔴 Critical",
+
+        "🔴 Danger",
+
         danger_count
+
     )
 
 
@@ -905,11 +1144,11 @@ st.divider()
 
 
 # ============================================================
-# MAIN MAP
+# MINE MAP
 # ============================================================
 
 st.subheader(
-    "🗺️ Intelligent Mine Operations Map"
+    "🗺️ Predictive Mine Operations Map"
 )
 
 
@@ -917,7 +1156,7 @@ fig = go.Figure()
 
 
 # ------------------------------------------------------------
-# Mine boundary
+# Mine Boundary
 # ------------------------------------------------------------
 
 fig.add_trace(
@@ -973,21 +1212,18 @@ for i in range(
     x2, y2 = ROAD_POINTS[i + 1]
 
 
-    road_x.extend(
-        [
-            x1,
-            x2,
-            None
-        ]
-    )
+    road_x.extend([
+        x1,
+        x2,
+        None
+    ])
 
-    road_y.extend(
-        [
-            y1,
-            y2,
-            None
-        ]
-    )
+
+    road_y.extend([
+        y1,
+        y2,
+        None
+    ])
 
 
 fig.add_trace(
@@ -1014,25 +1250,33 @@ fig.add_trace(
 
 
 # ------------------------------------------------------------
-# Vehicle colors
+# Vehicle Colors
 # ------------------------------------------------------------
 
-colors = []
+vehicle_colors = []
 
 
-for status in df["Status"]:
+for prediction in df[
+    "Prediction"
+]:
 
-    if status == "DANGER":
+    if prediction == "DANGER":
 
-        colors.append("red")
+        vehicle_colors.append(
+            "red"
+        )
 
-    elif status == "CAUTION":
+    elif prediction == "CAUTION":
 
-        colors.append("orange")
+        vehicle_colors.append(
+            "orange"
+        )
 
     else:
 
-        colors.append("green")
+        vehicle_colors.append(
+            "green"
+        )
 
 
 # ------------------------------------------------------------
@@ -1053,7 +1297,7 @@ fig.add_trace(
 
             size=18,
 
-            color=colors,
+            color=vehicle_colors,
 
             line=dict(
                 width=2
@@ -1065,25 +1309,27 @@ fig.add_trace(
 
         textposition="top center",
 
-        name="Vehicles",
+        name="Mine Vehicles",
+
+        customdata=df[
+            [
+                "Prediction",
+                "Confidence",
+                "Speed",
+                "Distance"
+            ]
+        ].values,
 
         hovertemplate=(
 
             "<b>%{text}</b><br>"
-            "Risk: %{customdata[0]}/100<br>"
-            "Speed: %{customdata[1]} km/h<br>"
-            "Distance: %{customdata[2]} m"
+            "Prediction: %{customdata[0]}<br>"
+            "Confidence: %{customdata[1]}%<br>"
+            "Speed: %{customdata[2]} km/h<br>"
+            "Distance: %{customdata[3]} m"
             "<extra></extra>"
 
-        ),
-
-        customdata=df[
-            [
-                "Risk",
-                "Speed",
-                "Distance"
-            ]
-        ].values
+        )
 
     )
 
@@ -1091,7 +1337,7 @@ fig.add_trace(
 
 
 # ------------------------------------------------------------
-# Excavation Zone
+# Excavation
 # ------------------------------------------------------------
 
 fig.add_shape(
@@ -1129,7 +1375,7 @@ fig.add_annotation(
 
 
 # ------------------------------------------------------------
-# Loading Zone
+# Loading
 # ------------------------------------------------------------
 
 fig.add_shape(
@@ -1167,7 +1413,7 @@ fig.add_annotation(
 
 
 # ------------------------------------------------------------
-# Dump Area
+# Dump
 # ------------------------------------------------------------
 
 fig.add_shape(
@@ -1205,7 +1451,7 @@ fig.add_annotation(
 
 
 # ------------------------------------------------------------
-# Restricted Zone
+# Restricted Area
 # ------------------------------------------------------------
 
 fig.add_shape(
@@ -1308,9 +1554,7 @@ fig.update_layout(
 
         showgrid=False,
 
-        zeroline=False,
-
-        title=""
+        zeroline=False
 
     ),
 
@@ -1324,8 +1568,6 @@ fig.update_layout(
         showgrid=False,
 
         zeroline=False,
-
-        title="",
 
         scaleanchor="x",
 
@@ -1358,11 +1600,11 @@ st.plotly_chart(
 
 
 # ============================================================
-# SAFETY ALERTS
+# PREDICTIVE ALERTS
 # ============================================================
 
 st.subheader(
-    "🚨 Intelligent Safety Alerts"
+    "🚨 AI Safety Predictions"
 )
 
 
@@ -1370,15 +1612,15 @@ if danger_count > 0:
 
     st.error(
 
-        f"CRITICAL ALERT: "
+        f"AI PREDICTION: "
         f"{danger_count} vehicle(s) "
-        f"have high operational risk."
+        f"are currently classified as HIGH RISK."
 
     )
 
 
     danger_df = df[
-        df["Status"] == "DANGER"
+        df["Prediction"] == "DANGER"
     ]
 
 
@@ -1387,7 +1629,8 @@ if danger_count > 0:
         st.error(
 
             f"🚛 {row['Vehicle']} | "
-            f"Risk: {row['Risk']}/100 | "
+            f"Prediction: DANGER | "
+            f"Confidence: {row['Confidence']}% | "
             f"{row['Recommendation']}"
 
         )
@@ -1397,9 +1640,9 @@ elif caution_count > 0:
 
     st.warning(
 
-        f"CAUTION: "
+        f"AI PREDICTION: "
         f"{caution_count} vehicle(s) "
-        f"require attention."
+        f"require additional attention."
 
     )
 
@@ -1407,67 +1650,126 @@ elif caution_count > 0:
 else:
 
     st.success(
-        "ALL CLEAR — No critical risks detected."
+
+        "AI PREDICTION: "
+        "All monitored vehicles are currently "
+        "within the SAFE class."
+
     )
 
 
 # ============================================================
-# RISK COMPONENT ANALYSIS
+# VEHICLE TABLE
 # ============================================================
 
 st.subheader(
-    "🧠 Risk Component Analysis"
+    "🚛 AI Vehicle Monitoring"
 )
 
 
-risk_components = pd.DataFrame({
+display_df = df[
 
-    "Risk Factor": [
+    [
 
-        "Visibility",
+        "Vehicle",
 
         "Speed",
 
         "Distance",
 
-        "Restricted Zone",
+        "Safe Distance",
 
-        "Traffic"
+        "Prediction",
 
-    ],
+        "Confidence",
 
-    "Contribution": [
+        "Risk",
 
-        df["Visibility Risk"].mean(),
+        "Nearest Vehicle",
 
-        df["Speed Risk"].mean(),
-
-        df["Distance Risk"].mean(),
-
-        df["Zone Risk"].mean(),
-
-        df["Traffic Risk"].mean()
+        "Recommendation"
 
     ]
+
+].copy()
+
+
+display_df.columns = [
+
+    "Vehicle",
+
+    "Speed (km/h)",
+
+    "Nearest Vehicle (m)",
+
+    "Required Distance (m)",
+
+    "AI Prediction",
+
+    "Confidence",
+
+    "Risk Score",
+
+    "Nearest Truck",
+
+    "Recommendation"
+
+]
+
+
+st.dataframe(
+
+    display_df,
+
+    use_container_width=True,
+
+    hide_index=True
+
+)
+
+
+# ============================================================
+# FEATURE IMPORTANCE
+# ============================================================
+
+st.subheader(
+    "🧠 AI Feature Importance"
+)
+
+
+importance_df = pd.DataFrame({
+
+    "Feature": FEATURES,
+
+    "Importance": model.feature_importances_
 
 })
 
 
+importance_df = importance_df.sort_values(
+
+    "Importance",
+
+    ascending=False
+
+)
+
+
 st.bar_chart(
 
-    risk_components.set_index(
-        "Risk Factor"
+    importance_df.set_index(
+        "Feature"
     )
 
 )
 
 
 # ============================================================
-# RISK HISTORY
+# RISK TREND
 # ============================================================
 
 st.subheader(
-    "📈 Mine Risk Trend"
+    "📈 Predictive Risk Trend"
 )
 
 
@@ -1489,179 +1791,146 @@ if len(
 
     st.line_chart(
 
-        history_df[
-            [
-                "Risk",
-                "Safety Score"
-            ]
-        ]
+        history_df
 
     )
 
 else:
 
     st.info(
+
         "Start the simulation to generate "
-        "historical safety data."
+        "predictive risk history."
+
     )
 
 
 # ============================================================
-# VEHICLE MONITORING
+# MODEL INFORMATION
 # ============================================================
 
 st.subheader(
-    "🚛 Vehicle Intelligence Table"
+    "🤖 AI Model Information"
 )
 
 
-display_df = df[
-
-    [
-
-        "Vehicle",
-
-        "Speed",
-
-        "Distance",
-
-        "Safe Distance",
-
-        "Risk",
-
-        "Status",
-
-        "Nearest Vehicle",
-
-        "Recommendation"
-
-    ]
-
-].copy()
+m1, m2, m3 = st.columns(3)
 
 
-display_df.columns = [
+with m1:
 
-    "Vehicle",
-
-    "Speed (km/h)",
-
-    "Nearest Vehicle (m)",
-
-    "Required Distance (m)",
-
-    "Risk Score",
-
-    "Status",
-
-    "Nearest Truck",
-
-    "Recommendation"
-
-]
+    st.metric(
+        "Training Samples",
+        len(training_data)
+    )
 
 
-st.dataframe(
+with m2:
 
-    display_df,
+    st.metric(
+        "Features",
+        len(FEATURES)
+    )
 
-    use_container_width=True,
 
-    hide_index=True
+with m3:
 
-)
+    st.metric(
+        "Model Accuracy",
+        f"{model_accuracy * 100:.1f}%"
+    )
 
 
 # ============================================================
-# SAFETY DISTRIBUTION
+# TRAINING DATA PREVIEW
 # ============================================================
 
-st.subheader(
-    "📊 Vehicle Safety Distribution"
-)
+with st.expander(
+    "📚 View AI Training Dataset"
+):
 
+    st.write(
+        """
+        MineVision V7 currently uses a synthetic
+        training dataset for demonstration.
 
-distribution = pd.DataFrame({
-
-    "Status": [
-
-        "SAFE",
-
-        "CAUTION",
-
-        "DANGER"
-
-    ],
-
-    "Vehicles": [
-
-        safe_count,
-
-        caution_count,
-
-        danger_count
-
-    ]
-
-})
-
-
-st.bar_chart(
-
-    distribution.set_index(
-        "Status"
+        In a real deployment, these records would be
+        replaced with historical mine-operation data.
+        """
     )
 
-)
+    st.dataframe(
+
+        training_data.head(20),
+
+        use_container_width=True,
+
+        hide_index=True
+
+    )
 
 
 # ============================================================
-# RECOMMENDATION ENGINE
+# EXPLAINABILITY
 # ============================================================
 
-st.subheader(
-    "🛡️ MineVision Recommendation Engine"
-)
+with st.expander(
+    "🔍 How the AI Makes a Prediction"
+):
 
+    st.write(
+        """
+        MineVision V7 uses a Random Forest classifier.
 
-if visibility < 30:
+        The model receives five features:
 
-    st.error(
+        • Visibility
+        • Vehicle speed
+        • Distance from the nearest vehicle
+        • Traffic density
+        • Restricted-zone status
 
-        "HEAVY FOG DETECTED: "
-        "Restrict vehicle movement. "
-        "Use minimum operating speeds and "
-        "maximum vehicle separation."
+        It then predicts one of three classes:
 
+        SAFE
+        CAUTION
+        DANGER
+
+        The confidence value represents the model's
+        predicted probability for the selected class.
+
+        Feature importance shows which input variables
+        contributed most strongly to the trained model.
+        """
     )
 
-elif visibility < 60:
 
-    st.warning(
+# ============================================================
+# REAL-WORLD INTEGRATION
+# ============================================================
 
-        "MODERATE FOG DETECTED: "
-        "Reduce vehicle speeds and increase "
-        "following distances."
+with st.expander(
+    "🚀 Real-World Deployment Path"
+):
 
-    )
+    st.write(
+        """
+        The current prototype uses simulated data.
 
-elif visibility < 100:
+        A production MineVision system could replace
+        the simulated inputs with:
 
-    st.info(
+        • GPS
+        • Vehicle telemetry
+        • Visibility sensors
+        • Weather sensors
+        • Camera systems
+        • Mine fleet-management systems
+        • IoT devices
 
-        "LIGHT FOG DETECTED: "
-        "Increase monitoring frequency and "
-        "maintain safe vehicle spacing."
-
-    )
-
-else:
-
-    st.success(
-
-        "VISIBILITY NORMAL: "
-        "Continue standard safety monitoring."
-
+        Historical operational records could then be used
+        to retrain the model on actual mine conditions.
+        """
     )
 
 
@@ -1671,21 +1940,20 @@ else:
 
 st.divider()
 
-
 st.subheader(
-    "📡 MineVision System Status"
+    "📡 System Status"
 )
 
 
-status1, status2, status3, status4 = st.columns(4)
+s1, s2, s3, s4 = st.columns(4)
 
 
-with status1:
+with s1:
 
     if st.session_state.running:
 
         st.success(
-            "SYSTEM RUNNING"
+            "AI MONITORING ACTIVE"
         )
 
     else:
@@ -1695,7 +1963,7 @@ with status1:
         )
 
 
-with status2:
+with s2:
 
     st.write(
         f"**Simulation Step:** "
@@ -1703,85 +1971,18 @@ with status2:
     )
 
 
-with status3:
+with s3:
 
     st.write(
-        f"**Vehicles Monitored:** "
+        f"**Vehicles:** "
         f"{vehicle_count}"
     )
 
 
-with status4:
-
-    current_time = datetime.now().strftime(
-        "%H:%M:%S"
-    )
+with s4:
 
     st.write(
-        f"**Last Update:** "
-        f"{current_time}"
-    )
-
-
-# ============================================================
-# EXPLAINABILITY
-# ============================================================
-
-with st.expander(
-    "🧠 How MineVision Calculates Risk"
-):
-
-    st.write(
-        """
-        MineVision uses an explainable weighted-risk approach.
-
-        The risk score considers:
-
-        1. Visibility conditions
-        2. Vehicle speed
-        3. Distance from nearby vehicles
-        4. Restricted-zone presence
-        5. Traffic density
-
-        Each factor contributes to the overall risk score.
-
-        The resulting score is classified as:
-
-        0–39   → SAFE
-
-        40–69  → CAUTION
-
-        70–100 → DANGER
-
-        The system then produces an operational
-        recommendation for the vehicle.
-        """
-    )
-
-
-# ============================================================
-# FUTURE INTEGRATION
-# ============================================================
-
-with st.expander(
-    "🚀 Future Real-World Integration"
-):
-
-    st.write(
-        """
-        The prototype can be extended to receive:
-
-        • GPS vehicle positions
-        • Vehicle speed telemetry
-        • Visibility sensors
-        • Camera feeds
-        • Weather data
-        • Mine fleet-management systems
-        • Edge/IoT sensor data
-
-        These data sources could replace the current
-        simulated inputs.
-        """
+        "**Model:** Random Forest"
     )
 
 
@@ -1793,18 +1994,18 @@ st.divider()
 
 
 st.caption(
-    "MineVision V6 | Intelligent Mine Safety Prototype"
+    "MineVision V7 | Predictive AI Mine Safety Prototype"
 )
 
 
 st.caption(
-    "All environmental and vehicle data are simulated "
-    "for demonstration purposes."
+    "Training and operational data are simulated "
+    "for hackathon demonstration purposes."
 )
 
 
 # ============================================================
-# AUTOMATIC REFRESH
+# REFRESH
 # ============================================================
 
 if st.session_state.running:
