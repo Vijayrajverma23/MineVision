@@ -1,6 +1,6 @@
 # ============================================================
-# MINEVISION V7
-# Predictive AI Mine Vehicle Safety System
+# MINEVISION V8
+# AI + COMPUTER VISION MINE VEHICLE SAFETY SYSTEM
 #
 # Safe and Efficient Operation of Mine Vehicles
 # in Fog and Low-Visibility Conditions
@@ -12,25 +12,27 @@ import plotly.graph_objects as go
 import numpy as np
 import random
 import math
+import cv2
 
+from PIL import Image
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
 
 
 # ============================================================
-# PAGE CONFIGURATION
+# PAGE CONFIG
 # ============================================================
 
 st.set_page_config(
-    page_title="MineVision V7",
+    page_title="MineVision V8",
     page_icon="⛏️",
     layout="wide"
 )
 
 
 # ============================================================
-# CUSTOM CSS
+# CSS
 # ============================================================
 
 st.markdown("""
@@ -48,7 +50,6 @@ st.markdown("""
 .subtitle {
     font-size: 17px;
     color: #6b7280;
-    margin-bottom: 20px;
 }
 
 div[data-testid="stMetric"] {
@@ -56,6 +57,12 @@ div[data-testid="stMetric"] {
     padding: 12px;
     border-radius: 10px;
     border: 1px solid #e5e7eb;
+}
+
+.alert-box {
+    padding: 15px;
+    border-radius: 10px;
+    margin: 10px 0;
 }
 
 </style>
@@ -67,13 +74,13 @@ div[data-testid="stMetric"] {
 # ============================================================
 
 st.markdown(
-    '<div class="title">⛏️ MineVision V7</div>',
+    '<div class="title">⛏️ MineVision V8</div>',
     unsafe_allow_html=True
 )
 
 st.markdown(
     '<div class="subtitle">'
-    'Predictive AI Safety System for Open-Cast Mine Vehicles'
+    'AI + Computer Vision Safety System for Open-Cast Mine Vehicles'
     '</div>',
     unsafe_allow_html=True
 )
@@ -100,12 +107,9 @@ if "initialized" not in st.session_state:
 if "risk_history" not in st.session_state:
     st.session_state.risk_history = []
 
-if "alert_history" not in st.session_state:
-    st.session_state.alert_history = []
-
 
 # ============================================================
-# MINE ROAD NETWORK
+# ROAD NETWORK
 # ============================================================
 
 ROAD_POINTS = [
@@ -207,7 +211,7 @@ def is_restricted_zone(x, y):
 
 
 # ============================================================
-# GENERATE TRAINING DATA
+# TRAINING DATA
 # ============================================================
 
 def generate_training_data(samples=5000):
@@ -250,13 +254,9 @@ def generate_training_data(samples=5000):
             visibility
         )
 
-        # --------------------------------------------
-        # Generate training risk
-        # --------------------------------------------
-
         risk = 0
 
-        # Visibility
+        # Visibility risk
 
         if visibility < 30:
             risk += 35
@@ -271,7 +271,7 @@ def generate_training_data(samples=5000):
             risk += 5
 
 
-        # Speed
+        # Speed risk
 
         if speed > speed_limit * 1.5:
             risk += 30
@@ -283,7 +283,7 @@ def generate_training_data(samples=5000):
             risk += 10
 
 
-        # Distance
+        # Distance risk
 
         if distance < 20:
             risk += 35
@@ -313,8 +313,7 @@ def generate_training_data(samples=5000):
             risk += 5
 
 
-        # Small random noise makes the dataset
-        # less perfectly deterministic.
+        # Noise
 
         risk += random.randint(
             -5,
@@ -329,10 +328,6 @@ def generate_training_data(samples=5000):
             )
         )
 
-
-        # --------------------------------------------
-        # Convert risk into class
-        # --------------------------------------------
 
         if risk >= 70:
 
@@ -370,13 +365,13 @@ def generate_training_data(samples=5000):
 
 
 # ============================================================
-# TRAIN MACHINE LEARNING MODEL
+# TRAIN MODEL
 # ============================================================
 
 @st.cache_resource
 def train_model():
 
-    training_data = generate_training_data(
+    data = generate_training_data(
         5000
     )
 
@@ -384,31 +379,22 @@ def train_model():
     features = [
 
         "visibility",
-
         "speed",
-
         "distance",
-
         "traffic",
-
         "restricted"
 
     ]
 
 
-    X = training_data[
-        features
-    ]
+    X = data[features]
 
-    y = training_data[
-        "label"
-    ]
+    y = data["label"]
 
 
     X_train, X_test, y_train, y_test = train_test_split(
 
         X,
-
         y,
 
         test_size=0.20,
@@ -437,27 +423,23 @@ def train_model():
     )
 
 
-    predictions = model.predict(
+    prediction = model.predict(
         X_test
     )
 
 
     accuracy = accuracy_score(
         y_test,
-        predictions
+        prediction
     )
 
 
     return (
         model,
-        training_data,
+        data,
         accuracy
     )
 
-
-# ============================================================
-# LOAD MODEL
-# ============================================================
 
 model, training_data, model_accuracy = train_model()
 
@@ -465,20 +447,277 @@ model, training_data, model_accuracy = train_model()
 FEATURES = [
 
     "visibility",
-
     "speed",
-
     "distance",
-
     "traffic",
-
     "restricted"
 
 ]
 
 
 # ============================================================
-# VEHICLE CREATION
+# COMPUTER VISION
+# ============================================================
+
+def detect_vehicles(image):
+
+    """
+    Basic OpenCV vehicle detection.
+
+    This is a prototype detector using image processing.
+    It is NOT a production-grade object detection model.
+    """
+
+    image_array = np.array(
+        image
+    )
+
+    frame = cv2.cvtColor(
+        image_array,
+        cv2.COLOR_RGB2BGR
+    )
+
+
+    # --------------------------------------------------------
+    # Resize
+    # --------------------------------------------------------
+
+    height, width = frame.shape[:2]
+
+    scale = 900 / width
+
+    if width > 900:
+
+        frame = cv2.resize(
+
+            frame,
+
+            (
+                900,
+                int(height * scale)
+            )
+
+        )
+
+
+    # --------------------------------------------------------
+    # Convert to grayscale
+    # --------------------------------------------------------
+
+    gray = cv2.cvtColor(
+
+        frame,
+
+        cv2.COLOR_BGR2GRAY
+
+    )
+
+
+    # --------------------------------------------------------
+    # Blur
+    # --------------------------------------------------------
+
+    blurred = cv2.GaussianBlur(
+
+        gray,
+
+        (5, 5),
+
+        0
+
+    )
+
+
+    # --------------------------------------------------------
+    # Edge detection
+    # --------------------------------------------------------
+
+    edges = cv2.Canny(
+
+        blurred,
+
+        50,
+
+        150
+
+    )
+
+
+    # --------------------------------------------------------
+    # Find contours
+    # --------------------------------------------------------
+
+    contours, _ = cv2.findContours(
+
+        edges,
+
+        cv2.RETR_EXTERNAL,
+
+        cv2.CHAIN_APPROX_SIMPLE
+
+    )
+
+
+    detections = []
+
+
+    for contour in contours:
+
+        x, y, w, h = cv2.boundingRect(
+            contour
+        )
+
+
+        area = w * h
+
+
+        # Simple filtering
+
+        if (
+
+            area > 1500
+
+            and
+
+            w > 35
+
+            and
+
+            h > 25
+
+            and
+
+            w < frame.shape[1] * 0.8
+
+        ):
+
+            aspect_ratio = w / max(
+                h,
+                1
+            )
+
+
+            if 0.6 < aspect_ratio < 5:
+
+                detections.append(
+                    (x, y, w, h)
+                )
+
+
+    # --------------------------------------------------------
+    # Remove overlapping detections
+    # --------------------------------------------------------
+
+    final_boxes = []
+
+
+    for box in detections:
+
+        x, y, w, h = box
+
+        keep = True
+
+
+        for existing in final_boxes:
+
+            ex, ey, ew, eh = existing
+
+
+            center_x = x + w / 2
+
+            center_y = y + h / 2
+
+
+            if (
+
+                ex <= center_x <= ex + ew
+
+                and
+
+                ey <= center_y <= ey + eh
+
+            ):
+
+                keep = False
+
+                break
+
+
+        if keep:
+
+            final_boxes.append(
+                box
+            )
+
+
+    # --------------------------------------------------------
+    # Draw results
+    # --------------------------------------------------------
+
+    for index, box in enumerate(
+        final_boxes
+    ):
+
+        x, y, w, h = box
+
+
+        cv2.rectangle(
+
+            frame,
+
+            (x, y),
+
+            (x + w, y + h),
+
+            (0, 255, 0),
+
+            3
+
+        )
+
+
+        label = (
+            f"Vehicle {index + 1}"
+        )
+
+
+        cv2.putText(
+
+            frame,
+
+            label,
+
+            (x, max(y - 10, 20)),
+
+            cv2.FONT_HERSHEY_SIMPLEX,
+
+            0.7,
+
+            (0, 255, 0),
+
+            2
+
+        )
+
+
+    # --------------------------------------------------------
+    # Convert back to RGB
+    # --------------------------------------------------------
+
+    result = cv2.cvtColor(
+
+        frame,
+
+        cv2.COLOR_BGR2RGB
+
+    )
+
+
+    return result, len(final_boxes)
+
+
+# ============================================================
+# VEHICLE SIMULATION
 # ============================================================
 
 def create_vehicle(number):
@@ -526,9 +765,7 @@ def create_vehicle(number):
     }
 
 
-# ============================================================
-# MOVE VEHICLE
-# ============================================================
+# ------------------------------------------------------------
 
 def move_vehicle(vehicle):
 
@@ -633,7 +870,7 @@ vehicle_count = st.sidebar.slider(
 
 
 st.sidebar.subheader(
-    "Simulation"
+    "Simulation Controls"
 )
 
 
@@ -665,7 +902,49 @@ if st.sidebar.button(
 
     st.session_state.risk_history = []
 
-    st.session_state.alert_history = []
+
+# ============================================================
+# CAMERA INPUT
+# ============================================================
+
+st.sidebar.divider()
+
+st.sidebar.subheader(
+    "📷 Camera Analysis"
+)
+
+
+camera_mode = st.sidebar.radio(
+
+    "Camera Source",
+
+    [
+
+        "Disabled",
+
+        "Upload Image"
+
+    ]
+
+)
+
+
+uploaded_image = None
+
+
+if camera_mode == "Upload Image":
+
+    uploaded_image = st.sidebar.file_uploader(
+
+        "Upload mine-road image",
+
+        type=[
+            "jpg",
+            "jpeg",
+            "png"
+        ]
+
+    )
 
 
 # ============================================================
@@ -695,8 +974,7 @@ if (
     len(
         st.session_state.vehicles
     )
-    !=
-    vehicle_count
+    != vehicle_count
 
 ):
 
@@ -764,10 +1042,6 @@ for vehicle in st.session_state.vehicles:
     nearest_vehicle = "None"
 
 
-    # --------------------------------------------------------
-    # Find nearest vehicle
-    # --------------------------------------------------------
-
     for other in st.session_state.vehicles:
 
         if (
@@ -812,8 +1086,6 @@ for vehicle in st.session_state.vehicles:
             nearest_vehicle = other["id"]
 
 
-    # Convert map units to meters
-
     real_distance = round(
 
         nearest_distance * 3,
@@ -842,7 +1114,7 @@ for vehicle in st.session_state.vehicles:
 
 
     # --------------------------------------------------------
-    # MACHINE LEARNING INPUT
+    # ML INPUT
     # --------------------------------------------------------
 
     model_input = pd.DataFrame([{
@@ -862,25 +1134,19 @@ for vehicle in st.session_state.vehicles:
     }])
 
 
-    # --------------------------------------------------------
-    # ML PREDICTION
-    # --------------------------------------------------------
-
     prediction = model.predict(
         model_input
     )[0]
 
 
-    probabilities = model.predict_proba(
+    probability = model.predict_proba(
         model_input
     )[0]
 
 
     confidence = round(
 
-        max(
-            probabilities
-        )
+        max(probability)
         *
         100,
 
@@ -889,11 +1155,7 @@ for vehicle in st.session_state.vehicles:
     )
 
 
-    # --------------------------------------------------------
-    # Calculate numerical risk
-    # --------------------------------------------------------
-
-    risk_mapping = {
+    risk_values = {
 
         "SAFE": 20,
 
@@ -904,7 +1166,7 @@ for vehicle in st.session_state.vehicles:
     }
 
 
-    predicted_risk = risk_mapping[
+    risk = risk_values[
         prediction
     ]
 
@@ -982,7 +1244,7 @@ for vehicle in st.session_state.vehicles:
 
         "Confidence": confidence,
 
-        "Risk": predicted_risk,
+        "Risk": risk,
 
         "Recommendation": recommendation,
 
@@ -990,9 +1252,7 @@ for vehicle in st.session_state.vehicles:
 
         "x": vehicle["x"],
 
-        "y": vehicle["y"],
-
-        "Restricted": restricted
+        "y": vehicle["y"]
 
     })
 
@@ -1024,10 +1284,6 @@ safety_score = max(
 )
 
 
-# ============================================================
-# COUNTERS
-# ============================================================
-
 safe_count = sum(
     df["Prediction"] == "SAFE"
 )
@@ -1044,7 +1300,7 @@ danger_count = sum(
 
 
 # ============================================================
-# SAVE HISTORY
+# HISTORY
 # ============================================================
 
 if st.session_state.step > 0:
@@ -1053,7 +1309,7 @@ if st.session_state.step > 0:
 
         "Step": st.session_state.step,
 
-        "Predicted Risk": average_risk,
+        "Risk": average_risk,
 
         "Safety Score": safety_score
 
@@ -1072,11 +1328,11 @@ if len(
 
 
 # ============================================================
-# TOP DASHBOARD
+# TOP METRICS
 # ============================================================
 
 st.subheader(
-    "🤖 Predictive Safety Dashboard"
+    "🤖 MineVision Predictive Dashboard"
 )
 
 
@@ -1133,7 +1389,7 @@ with c5:
 
     st.metric(
 
-        "🔴 Danger",
+        "🔴 High Risk",
 
         danger_count
 
@@ -1141,6 +1397,88 @@ with c5:
 
 
 st.divider()
+
+
+# ============================================================
+# COMPUTER VISION PANEL
+# ============================================================
+
+st.subheader(
+    "📷 Computer Vision Vehicle Detection"
+)
+
+
+if uploaded_image is not None:
+
+    image = Image.open(
+        uploaded_image
+    )
+
+
+    result_image, detected_count = detect_vehicles(
+        image
+    )
+
+
+    left, right = st.columns(2)
+
+
+    with left:
+
+        st.image(
+
+            image,
+
+            caption="Original Camera Image",
+
+            use_container_width=True
+
+        )
+
+
+    with right:
+
+        st.image(
+
+            result_image,
+
+            caption=(
+                "MineVision Detection Result"
+            ),
+
+            use_container_width=True
+
+        )
+
+
+    if detected_count > 0:
+
+        st.success(
+
+            f"Computer Vision detected "
+            f"{detected_count} possible vehicle/object "
+            f"region(s)."
+
+        )
+
+    else:
+
+        st.warning(
+
+            "No likely vehicle regions detected "
+            "by the prototype vision detector."
+
+        )
+
+
+else:
+
+    st.info(
+
+        "Upload a mine-road image from the sidebar "
+        "to demonstrate computer-vision analysis."
+
+    )
 
 
 # ============================================================
@@ -1155,9 +1493,7 @@ st.subheader(
 fig = go.Figure()
 
 
-# ------------------------------------------------------------
-# Mine Boundary
-# ------------------------------------------------------------
+# Mine boundary
 
 fig.add_trace(
 
@@ -1194,9 +1530,7 @@ fig.add_trace(
 )
 
 
-# ------------------------------------------------------------
 # Roads
-# ------------------------------------------------------------
 
 road_x = []
 
@@ -1249,11 +1583,9 @@ fig.add_trace(
 )
 
 
-# ------------------------------------------------------------
-# Vehicle Colors
-# ------------------------------------------------------------
+# Vehicle colors
 
-vehicle_colors = []
+colors = []
 
 
 for prediction in df[
@@ -1262,26 +1594,24 @@ for prediction in df[
 
     if prediction == "DANGER":
 
-        vehicle_colors.append(
+        colors.append(
             "red"
         )
 
     elif prediction == "CAUTION":
 
-        vehicle_colors.append(
+        colors.append(
             "orange"
         )
 
     else:
 
-        vehicle_colors.append(
+        colors.append(
             "green"
         )
 
 
-# ------------------------------------------------------------
 # Vehicles
-# ------------------------------------------------------------
 
 fig.add_trace(
 
@@ -1297,7 +1627,7 @@ fig.add_trace(
 
             size=18,
 
-            color=vehicle_colors,
+            color=colors,
 
             line=dict(
                 width=2
@@ -1309,15 +1639,22 @@ fig.add_trace(
 
         textposition="top center",
 
-        name="Mine Vehicles",
+        name="Vehicles",
 
         customdata=df[
+
             [
+
                 "Prediction",
+
                 "Confidence",
+
                 "Speed",
+
                 "Distance"
+
             ]
+
         ].values,
 
         hovertemplate=(
@@ -1336,9 +1673,7 @@ fig.add_trace(
 )
 
 
-# ------------------------------------------------------------
-# Excavation
-# ------------------------------------------------------------
+# Excavation area
 
 fig.add_shape(
 
@@ -1374,9 +1709,7 @@ fig.add_annotation(
 )
 
 
-# ------------------------------------------------------------
-# Loading
-# ------------------------------------------------------------
+# Loading area
 
 fig.add_shape(
 
@@ -1412,9 +1745,7 @@ fig.add_annotation(
 )
 
 
-# ------------------------------------------------------------
-# Dump
-# ------------------------------------------------------------
+# Dump area
 
 fig.add_shape(
 
@@ -1450,9 +1781,7 @@ fig.add_annotation(
 )
 
 
-# ------------------------------------------------------------
-# Restricted Area
-# ------------------------------------------------------------
+# Restricted zone
 
 fig.add_shape(
 
@@ -1492,9 +1821,7 @@ fig.add_annotation(
 )
 
 
-# ------------------------------------------------------------
-# Fog Overlay
-# ------------------------------------------------------------
+# Fog overlay
 
 fog_opacity = max(
 
@@ -1536,10 +1863,6 @@ fig.add_shape(
 
 )
 
-
-# ------------------------------------------------------------
-# Map Layout
-# ------------------------------------------------------------
 
 fig.update_layout(
 
@@ -1600,11 +1923,11 @@ st.plotly_chart(
 
 
 # ============================================================
-# PREDICTIVE ALERTS
+# AI ALERTS
 # ============================================================
 
 st.subheader(
-    "🚨 AI Safety Predictions"
+    "🚨 AI Safety Alerts"
 )
 
 
@@ -1612,25 +1935,21 @@ if danger_count > 0:
 
     st.error(
 
-        f"AI PREDICTION: "
-        f"{danger_count} vehicle(s) "
-        f"are currently classified as HIGH RISK."
+        f"AI ALERT: {danger_count} vehicle(s) "
+        f"currently classified as HIGH RISK."
 
     )
 
 
-    danger_df = df[
+    for _, row in df[
         df["Prediction"] == "DANGER"
-    ]
-
-
-    for _, row in danger_df.iterrows():
+    ].iterrows():
 
         st.error(
 
             f"🚛 {row['Vehicle']} | "
-            f"Prediction: DANGER | "
-            f"Confidence: {row['Confidence']}% | "
+            f"DANGER | "
+            f"Confidence {row['Confidence']}% | "
             f"{row['Recommendation']}"
 
         )
@@ -1640,8 +1959,7 @@ elif caution_count > 0:
 
     st.warning(
 
-        f"AI PREDICTION: "
-        f"{caution_count} vehicle(s) "
+        f"AI WARNING: {caution_count} vehicle(s) "
         f"require additional attention."
 
     )
@@ -1651,9 +1969,8 @@ else:
 
     st.success(
 
-        "AI PREDICTION: "
-        "All monitored vehicles are currently "
-        "within the SAFE class."
+        "AI STATUS: All monitored vehicles "
+        "are currently within the SAFE class."
 
     )
 
@@ -1663,7 +1980,7 @@ else:
 # ============================================================
 
 st.subheader(
-    "🚛 AI Vehicle Monitoring"
+    "🚛 Vehicle Intelligence"
 )
 
 
@@ -1708,7 +2025,7 @@ display_df.columns = [
 
     "Confidence",
 
-    "Risk Score",
+    "Risk",
 
     "Nearest Truck",
 
@@ -1765,7 +2082,7 @@ st.bar_chart(
 
 
 # ============================================================
-# RISK TREND
+# RISK HISTORY
 # ============================================================
 
 st.subheader(
@@ -1790,9 +2107,7 @@ if len(
 
 
     st.line_chart(
-
         history_df
-
     )
 
 else:
@@ -1800,7 +2115,7 @@ else:
     st.info(
 
         "Start the simulation to generate "
-        "predictive risk history."
+        "risk history."
 
     )
 
@@ -1810,7 +2125,7 @@ else:
 # ============================================================
 
 st.subheader(
-    "🤖 AI Model Information"
+    "🤖 Machine Learning Model"
 )
 
 
@@ -1820,52 +2135,32 @@ m1, m2, m3 = st.columns(3)
 with m1:
 
     st.metric(
+
         "Training Samples",
+
         len(training_data)
+
     )
 
 
 with m2:
 
     st.metric(
-        "Features",
+
+        "Input Features",
+
         len(FEATURES)
+
     )
 
 
 with m3:
 
     st.metric(
+
         "Model Accuracy",
+
         f"{model_accuracy * 100:.1f}%"
-    )
-
-
-# ============================================================
-# TRAINING DATA PREVIEW
-# ============================================================
-
-with st.expander(
-    "📚 View AI Training Dataset"
-):
-
-    st.write(
-        """
-        MineVision V7 currently uses a synthetic
-        training dataset for demonstration.
-
-        In a real deployment, these records would be
-        replaced with historical mine-operation data.
-        """
-    )
-
-    st.dataframe(
-
-        training_data.head(20),
-
-        use_container_width=True,
-
-        hide_index=True
 
     )
 
@@ -1875,61 +2170,94 @@ with st.expander(
 # ============================================================
 
 with st.expander(
-    "🔍 How the AI Makes a Prediction"
+    "🔍 How MineVision V8 Works"
 ):
 
     st.write(
         """
-        MineVision V7 uses a Random Forest classifier.
+        MineVision V8 combines two prototype systems.
 
-        The model receives five features:
+        1. COMPUTER VISION
+
+        OpenCV processes an uploaded mine-road image
+        and identifies regions that may correspond
+        to vehicles or large objects.
+
+        2. MACHINE LEARNING
+
+        A Random Forest model receives:
 
         • Visibility
         • Vehicle speed
-        • Distance from the nearest vehicle
+        • Vehicle separation
         • Traffic density
         • Restricted-zone status
 
-        It then predicts one of three classes:
+        and predicts:
 
         SAFE
         CAUTION
         DANGER
 
-        The confidence value represents the model's
-        predicted probability for the selected class.
+        3. DECISION SUPPORT
 
-        Feature importance shows which input variables
-        contributed most strongly to the trained model.
+        The prediction is converted into an operational
+        recommendation for the mine operator.
         """
     )
 
 
 # ============================================================
-# REAL-WORLD INTEGRATION
+# IMPORTANT LIMITATION
 # ============================================================
 
 with st.expander(
-    "🚀 Real-World Deployment Path"
+    "⚠️ Prototype Limitations"
+):
+
+    st.warning(
+        """
+        This is a hackathon prototype.
+
+        The computer-vision component uses basic OpenCV
+        image processing and should NOT be treated as a
+        certified vehicle-detection or collision-avoidance
+        system.
+
+        The machine-learning model is trained on synthetic
+        data for demonstration.
+
+        A real deployment would require validated mine
+        datasets, calibrated sensors, robust object
+        detection,
+        field testing, safety validation and appropriate
+        engineering controls.
+        """
+    )
+
+
+# ============================================================
+# FUTURE DEVELOPMENT
+# ============================================================
+
+with st.expander(
+    "🚀 V9 Development Path"
 ):
 
     st.write(
         """
-        The current prototype uses simulated data.
+        Future MineVision versions could include:
 
-        A production MineVision system could replace
-        the simulated inputs with:
-
-        • GPS
-        • Vehicle telemetry
-        • Visibility sensors
-        • Weather sensors
-        • Camera systems
-        • Mine fleet-management systems
-        • IoT devices
-
-        Historical operational records could then be used
-        to retrain the model on actual mine conditions.
+        • YOLO-based vehicle detection
+        • Real-time video processing
+        • GPS integration
+        • IoT visibility sensors
+        • Weather data
+        • Automatic vehicle tracking
+        • Time-to-collision estimation
+        • Historical incident prediction
+        • Mine digital twin
+        • Operator notification system
         """
     )
 
@@ -1982,7 +2310,7 @@ with s3:
 with s4:
 
     st.write(
-        "**Model:** Random Forest"
+        "**Vision:** OpenCV"
     )
 
 
@@ -1992,15 +2320,12 @@ with s4:
 
 st.divider()
 
-
 st.caption(
-    "MineVision V7 | Predictive AI Mine Safety Prototype"
+    "MineVision V8 | AI + Computer Vision Mine Safety Prototype"
 )
 
-
 st.caption(
-    "Training and operational data are simulated "
-    "for hackathon demonstration purposes."
+    "All simulated operational data are for demonstration purposes."
 )
 
 
