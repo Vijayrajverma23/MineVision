@@ -5,3 +5,4 @@ scikit-learn
 numpy
 opencv-python-headless
 Pillow
+ultralytics
